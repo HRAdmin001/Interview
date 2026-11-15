@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Voice Interview</title>
+<title>Initial Video Interview</title>
 <style>
   :root {
     --bg: #f5f7fb; --card: #ffffff; --text: #1d2433; --muted: #5d6779;
@@ -20,6 +20,8 @@
   label { display: block; font-weight: 600; margin: 14px 0 6px; font-size: .95rem; }
   input[type=text], input[type=email], input[type=tel] {
     width: 100%; padding: 11px 12px; border: 1px solid var(--border); border-radius: 8px; font: inherit; }
+  .rules { margin: 0 0 14px; padding-left: 20px; color: var(--muted); }
+  .rules li { margin-bottom: 8px; }
   .consent { display: flex; gap: 10px; align-items: flex-start; margin: 18px 0; font-weight: 400; color: var(--muted); font-size: .92rem; }
   .consent input { margin-top: 4px; }
   button { font: inherit; font-weight: 600; border: 0; border-radius: 8px; padding: 12px 20px; cursor: pointer;
@@ -74,9 +76,15 @@
 
   <!-- 1. Welcome -->
   <div class="card" id="screen-welcome">
-    <h1>Initial Voice Interview</h1>
-    <p>Our AI interviewer will greet you and ask a few questions out loud, one at a time. After each question you'll have a short moment to think, then your answer is recorded on video.</p>
-    <p><strong>Most answers are 1–2 minutes, but some questions need longer answers (up to 8 minutes).</strong> The time limit for each question is shown on screen, and recording stops automatically when time is up. <strong>There are no redos: once you answer a question, your recording is final.</strong> Find a quiet, well-lit place, keep your face in view of the camera, and use headphones if you can.</p>
+    <h1>Initial Video Interview</h1>
+    <p>This is a recorded video interview. Our AI interviewer will greet you and ask a few questions out loud, one at a time. After each question you'll have a few seconds to think, then your answer is recorded on video.</p>
+    <p><strong>Please read before you start:</strong></p>
+    <ul class="rules">
+      <li><strong>Each question has its own time requirement.</strong> Some need a short answer, others need you to speak for several minutes. The minimum and maximum time are shown on screen for every question.</li>
+      <li><strong>There are no do-overs.</strong> Once you answer a question, your recording is final.</li>
+      <li><strong>When time is up, the interview moves on.</strong> Recording stops automatically and the next question begins.</li>
+      <li>The whole interview takes about 25 minutes. Find a quiet, well-lit place, keep your face in view of the camera, and use headphones if you can.</li>
+    </ul>
 
     <label for="name">Full name</label>
     <input type="text" id="name" autocomplete="name">
