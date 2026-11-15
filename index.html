@@ -76,7 +76,7 @@
   <div class="card" id="screen-welcome">
     <h1>Initial Voice Interview</h1>
     <p>Our AI interviewer will greet you and ask a few questions out loud, one at a time. After each question you'll have a short moment to think, then your answer is recorded on video.</p>
-    <p><strong>Each answer should be 1–2 minutes.</strong> Recording stops automatically at 2 minutes. You can't re-record, so find a quiet, well-lit place, keep your face in view of the camera, and use headphones if you can.</p>
+    <p><strong>Most answers are 1–2 minutes, but some questions need longer answers (up to 8 minutes).</strong> The time limit for each question is shown on screen, and recording stops automatically when time is up. <strong>There are no redos: once you answer a question, your recording is final.</strong> Find a quiet, well-lit place, keep your face in view of the camera, and use headphones if you can.</p>
 
     <label for="name">Full name</label>
     <input type="text" id="name" autocomplete="name">
@@ -146,7 +146,7 @@
 
 <script>
 // ===================== YOUR SETTINGS =====================
-const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxKiIFQyvuiT3qV3b1A0X8LDtMxNvy3v15lJO-oWAwK_XukfPIbJEuujN87QnKr3_fLNw/exec';   // your Apps Script /exec link
+const SCRIPT_URL = 'PASTE_YOUR_WEB_APP_URL_HERE';   // your Apps Script /exec link
 const INTERVIEWER_NAME = 'Alex';                     // the name the AI interviewer uses
 const COMPANY_NAME = '';                             // e.g. 'Roam Adventure Co.' (leave '' to skip)
 // =========================================================
@@ -167,9 +167,7 @@ const LINES = {
     'Alright, here is your next question.'
   ],
   halfway: 'We are about halfway through. Here is the next question.',
-  last: 'And now, the last question.',
-  notStarted: 'Whenever you are ready, go ahead and start your answer.',
-  moreDetail: 'Take your time. You can add more detail, like an example from your own experience.'
+  last: 'And now, the last question.'
 };
 
 const $ = id => document.getElementById(id);
@@ -275,19 +273,20 @@ $('btn-begin').onclick = async () => {
     await speak(
       'Hi ' + first + '! I am ' + INTERVIEWER_NAME + ', and I will be your interviewer today' +
       (COMPANY_NAME ? ' for ' + COMPANY_NAME : '') + '. ' +
-      'I will ask you ' + questions.length + ' questions. After each one, you will have ' + settings.prepSeconds +
-      ' seconds to think. When you hear the beep, start speaking. Try to answer for at least ' +
-      spokenTime(settings.minSeconds) + ', and no more than ' + spokenTime(settings.maxSeconds) + ', unless I say otherwise. Let us begin.'
+      'I will ask you ' + questions.length + ' questions. Before we start, please note two important things. ' +
+      'First, you are only given a limited amount of time to answer each question. I will tell you the time limit before each question, ' +
+      'a timer is shown on screen, and the recording stops automatically when time is up. ' +
+      'Second, there are no redos. Once you answer a question, your recording is final and cannot be recorded again. ' +
+      'After I read each question, you will have ' + settings.prepSeconds + ' seconds to think. ' +
+      'When you hear the beep, start speaking. I will stay quiet while you answer. Let us begin.'
     );
 
     for (let i = 0; i < questions.length; i++) await runQuestion(i);
 
     setStatus('Interviewer is speaking…');
-    await Promise.all([
-      speak('That is the end of the interview. Thank you for your time, ' + first +
-            '. The hiring team will review your answers and get back to you. Have a great day!'),
-      api({ action: 'finish', sessionId }).catch(() => {})
-    ]);
+    await api({ action: 'finish', sessionId }).catch(() => {});
+    await speak('Thank you, ' + first + '. That is the end of the interview, and all your answers have been saved. ' +
+                'The hiring team will review them and get back to you. Have a great day!');
     inInterview = false;
     stream.getTracks().forEach(t => t.stop());
     show('screen-done');
@@ -328,13 +327,24 @@ function speak(text, caption = text) {
     };
     if (!('speechSynthesis' in window)) { setTimeout(finish, 1500); return; }
     speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(text);
-    if (voice) u.voice = voice;
-    u.rate = 0.95;
-    u.onend = finish; u.onerror = finish;
-    // fallback in case the browser never fires onend
-    setTimeout(finish, (text.split(/\s+/).length / 2.2 + 3) * 1000);
-    speechSynthesis.speak(u);
+    const parts = text.match(/[^.!?]+[.!?]*/g) || [text];
+    let k = 0;
+    const next = () => {
+      if (done) return;
+      if (k >= parts.length) return finish();
+      const part = parts[k++].trim();
+      if (!part) return next();
+      const u = new SpeechSynthesisUtterance(part);
+      if (voice) u.voice = voice;
+      u.rate = 0.95;
+      let partDone = false;
+      const go = () => { if (!partDone) { partDone = true; next(); } };
+      u.onend = go; u.onerror = go;
+      // fallback in case the browser never fires onend
+      setTimeout(go, (part.split(/\s+/).length / 2.2 + 2.5) * 1000);
+      speechSynthesis.speak(u);
+    };
+    next();
   });
 }
 
@@ -389,9 +399,10 @@ async function runQuestion(i) {
   else lead = pick(LINES.next);
 
   setStatus('Interviewer is speaking…');
-  const shortNote = q.max < settings.maxSeconds ? ' A short answer is fine for this one.' : '';
-  await speak(lead + ' ' + q.text + shortNote,
-              (settings.showText ? lead : lead + ' (listen to the question)') + shortNote);
+  let timeNote = ' You have up to ' + spokenTime(q.max) + ' to answer';
+  timeNote += q.min >= 60 ? ', and please speak for at least ' + spokenTime(q.min) + '.' : '. A short answer is fine for this one.';
+  await speak(lead + ' ' + q.text + timeNote,
+              (settings.showText ? lead : lead + ' (listen to the question)') + timeNote);
 
   // thinking time, with the option to repeat the question
   let repeatRequested = false;
@@ -415,12 +426,11 @@ async function runQuestion(i) {
   // record the answer
   const result = await record(q);
 
-  // react while the answer uploads
+  // save first, then the interviewer reacts
   setStatus('Saving your answer…');
-  await Promise.all([
-    upload(i, q, result),
-    speak(pick(LINES.thanks))
-  ]);
+  $('iv-say').textContent = '';
+  await upload(i, q, result);
+  if (i < questions.length - 1) await speak(pick(LINES.thanks));
 }
 
 function record(q) {
@@ -428,24 +438,22 @@ function record(q) {
   return new Promise(resolve => {
     const types = ['video/webm;codecs=vp8,opus', 'video/webm;codecs=vp9,opus', 'video/webm', 'video/mp4'];
     const mimeType = types.find(t => MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) || '';
-    // small file sizes: about 2.5 MB per minute
-    const opts = { videoBitsPerSecond: 300000, audioBitsPerSecond: 48000 };
+    // small file sizes: about 1.8 MB per minute (an 8-minute answer is about 15 MB)
+    const opts = { videoBitsPerSecond: 200000, audioBitsPerSecond: 40000 };
     if (mimeType) opts.mimeType = mimeType;
     const rec = new MediaRecorder(stream, opts);
     const chunks = [];
     const t0 = Date.now();
     let tick;
 
-    // for the "interactive" nudges
+    // the interviewer stays silent while recording; warnings are shown on screen only
     const SILENCE_LEVEL = 0.02;     // below this counts as quiet
-    const NUDGE_AFTER = 8;          // seconds of quiet before the interviewer speaks up
-    let lastSound = t0, everSpoke = false;
-    let nudgedStart = false, nudgedDetail = false, warned = false, speakingNudge = false;
+    const QUIET_HINT_AFTER = 8;     // seconds of quiet before showing the "finished?" hint
+    let lastSound = t0, warned = false, warned60 = false;
 
     rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
     rec.onstop = () => {
       clearInterval(tick);
-      if (window.speechSynthesis) window.speechSynthesis.cancel();
       $('rec-badge').classList.add('hidden');
       const type = rec.mimeType || mimeType || 'video/webm';
       resolve({ blob: new Blob(chunks, { type }), mimeType: type, durationSec: (Date.now() - t0) / 1000 });
@@ -464,30 +472,25 @@ function record(q) {
       const el = (now - t0) / 1000;
       const left = MAX - el;
 
-      // listen for the applicant's voice (ignore the interviewer's own nudges)
-      if (!speakingNudge && micLevel() > SILENCE_LEVEL) { lastSound = now; everSpoke = true; }
+      if (micLevel() > SILENCE_LEVEL) lastSound = now;
       const quietFor = (now - lastSound) / 1000;
 
       $('timer').textContent = fmt(el);
       $('bar-fill').style.width = Math.min(100, el / MAX * 100) + '%';
 
-      // gentle nudges before the minimum time
-      if (el < MIN && quietFor >= NUDGE_AFTER && !speakingNudge) {
-        if (!everSpoke && !nudgedStart) {
-          nudgedStart = true; speakingNudge = true;
-          speak(LINES.notStarted).then(() => { speakingNudge = false; lastSound = Date.now(); });
-        } else if (everSpoke && !nudgedDetail) {
-          nudgedDetail = true; speakingNudge = true;
-          speak(LINES.moreDetail).then(() => { speakingNudge = false; lastSound = Date.now(); });
+      if (el >= MIN) {
+        $('btn-finish').disabled = false;
+        if (!warned && !warned60) {
+          if (quietFor >= QUIET_HINT_AFTER) setHint('If you\'re finished, click "Finish answer".');
+          else setHint('You can finish now, or keep going until ' + fmt(MAX) + '.');
         }
       }
 
-      if (el >= MIN) {
-        $('btn-finish').disabled = false;
-        if (!warned) {
-          if (quietFor >= NUDGE_AFTER) setHint('If you\'re finished, click "Finish answer".');
-          else setHint('You can finish now, or keep going until ' + fmt(MAX) + '.');
-        }
+      // 1-minute warning for long answers
+      if (MAX >= 240 && left <= 60 && !warned60) {
+        warned60 = true;
+        setHint('About 1 minute left.', true);
+        $('iv-say').textContent = 'About 1 minute left.';
       }
 
       // 15-second warning
@@ -496,7 +499,6 @@ function record(q) {
         $('bar-fill').classList.add('warn');
         setHint('About 15 seconds left. Please start wrapping up.', true);
         $('iv-say').textContent = 'About 15 seconds left.';
-        beep(2);
       }
 
       if (el >= MAX && rec.state === 'recording') rec.stop();
