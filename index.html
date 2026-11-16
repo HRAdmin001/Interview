@@ -156,7 +156,7 @@
 // ===================== YOUR SETTINGS =====================
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxKiIFQyvuiT3qV3b1A0X8LDtMxNvy3v15lJO-oWAwK_XukfPIbJEuujN87QnKr3_fLNw/exec';   // your Apps Script /exec link
 const INTERVIEWER_NAME = 'Kloe';                     // the name shown on screen
-const SPOKEN_NAME = 'Kloe';                         // how the name is pronounced out loud
+const SPOKEN_NAME = 'Chloe';                         // how the name is pronounced out loud
 const COMPANY_NAME = '';                             // e.g. 'Roam Adventure Co.' (leave '' to skip)
 // =========================================================
 
@@ -328,7 +328,10 @@ function pickVoice() {
 if ('speechSynthesis' in window) { pickVoice(); speechSynthesis.onvoiceschanged = pickVoice; }
 
 // says the text out loud, shows it as a caption, and animates the avatar
-function speak(text, caption = text) {
+function speak(text, caption) {
+  // on screen, always show the written name (Kloe), even though the voice says it as "Chloe"
+  if (caption === undefined) caption = text;
+  caption = String(caption).split(SPOKEN_NAME).join(INTERVIEWER_NAME);
   return new Promise(resolve => {
     $('iv-say').textContent = caption || '';
     $('avatar').classList.add('talking');
