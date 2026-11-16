@@ -155,7 +155,8 @@
 <script>
 // ===================== YOUR SETTINGS =====================
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxKiIFQyvuiT3qV3b1A0X8LDtMxNvy3v15lJO-oWAwK_XukfPIbJEuujN87QnKr3_fLNw/exec';   // your Apps Script /exec link
-const INTERVIEWER_NAME = 'Alex';                     // the name the AI interviewer uses
+const INTERVIEWER_NAME = 'Kloe';                     // the name shown on screen
+const SPOKEN_NAME = 'Chloe';                         // how the name is pronounced out loud
 const COMPANY_NAME = '';                             // e.g. 'Roam Adventure Co.' (leave '' to skip)
 // =========================================================
 
@@ -279,7 +280,7 @@ $('btn-begin').onclick = async () => {
     const first = applicant.name.split(/\s+/)[0];
     setStatus('Interviewer is speaking…');
     await speak(
-      'Hi ' + first + '! I am ' + INTERVIEWER_NAME + ', and I will be your interviewer today' +
+      'Hi ' + first + '! I am ' + SPOKEN_NAME + ', and I will be your interviewer today' +
       (COMPANY_NAME ? ' for ' + COMPANY_NAME : '') + '. ' +
       'I will ask you ' + questions.length + ' questions. Before we start, please note two important things. ' +
       'First, you are only given a limited amount of time to answer each question. I will tell you the time limit before each question, ' +
@@ -314,10 +315,15 @@ function spokenTime(s) {
 
 // ---------- speech ----------
 let voice = null;
+// prefer a female English voice (browsers don't label gender, so we go by voice name)
+const FEMALE_VOICE = /female|samantha|victoria|karen|moira|tessa|fiona|veena|zira|aria|jenny|michelle|ava|allison|susan|serena|libby|sonia|natasha|hazel|catherine|emma|sara|clara|nicky|google us english/i;
+const MALE_VOICE = /\bmale\b|david|mark|guy|daniel|alex|fred|george|ryan|james|thomas|rishi|aaron|arthur|oliver|eddy|reed|rocko|grandpa/i;
 function pickVoice() {
-  const voices = speechSynthesis.getVoices();
-  voice = voices.find(v => /en[-_](US|GB|PH|AU)/i.test(v.lang) && /Google|Natural|Samantha|Microsoft/i.test(v.name))
-       || voices.find(v => /^en/i.test(v.lang)) || null;
+  const en = speechSynthesis.getVoices().filter(v => /^en/i.test(v.lang));
+  const female = en.filter(v => FEMALE_VOICE.test(v.name) && !MALE_VOICE.test(v.name));
+  const notMale = en.filter(v => !MALE_VOICE.test(v.name));
+  const best = list => list.find(v => /Natural|Online|Google/i.test(v.name)) || list[0];
+  voice = best(female) || best(notMale) || en[0] || null;
 }
 if ('speechSynthesis' in window) { pickVoice(); speechSynthesis.onvoiceschanged = pickVoice; }
 
