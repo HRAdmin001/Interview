@@ -67,6 +67,14 @@
               transform: scaleX(-1); display: block; }
   .rec-badge { position: absolute; top: 8px; left: 8px; background: var(--danger); color: #fff; font-size: .75rem;
                font-weight: 700; padding: 3px 8px; border-radius: 6px; letter-spacing: .04em; }
+  .stage { display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap; }
+  .stage .selfwrap { flex: 0 1 260px; margin: 0; }
+  .controls { flex: 1 1 220px; min-width: 0; }
+  .controls .row { margin-top: 12px; }
+  .controls .row:empty, .controls .row:not(:has(button:not(.hidden))) { display: none; }
+  button.stop { display: block; width: 100%; margin-top: 16px; padding: 14px 20px; font-size: 1.05rem;
+                background: var(--danger); }
+  button.stop:hover:not(:disabled) { background: #b92e2e; }
   .meter { height: 6px; background: #eef1f7; border-radius: 99px; overflow: hidden; margin-top: 10px; }
   .meter > div { height: 100%; width: 0; background: var(--ok); }
 </style>
@@ -128,18 +136,22 @@
 
     <div class="progress" id="q-progress"></div>
     <div class="question" id="q-text"></div>
-    <div class="selfwrap">
-      <video class="selfview" id="cam-live" autoplay muted playsinline></video>
-      <span class="rec-badge hidden" id="rec-badge">● REC</span>
-    </div>
-    <div class="status"><span class="dot" id="dot"></span><span id="status-text"></span></div>
-    <div class="timer" id="timer">0:00</div>
-    <div class="bar"><div id="bar-fill"></div><span class="min" id="bar-min"></span></div>
-    <div class="hint" id="hint"></div>
-    <div class="row">
-      <button class="secondary hidden" id="btn-repeat">Repeat question</button>
-      <button class="hidden" id="btn-finish">Stop &amp; save answer</button>
-      <button class="hidden" id="btn-retry">Try uploading again</button>
+    <div class="stage">
+      <div class="selfwrap">
+        <video class="selfview" id="cam-live" autoplay muted playsinline></video>
+        <span class="rec-badge hidden" id="rec-badge">● REC</span>
+      </div>
+      <div class="controls">
+        <div class="status"><span class="dot" id="dot"></span><span id="status-text"></span></div>
+        <div class="timer" id="timer">0:00</div>
+        <div class="bar"><div id="bar-fill"></div><span class="min" id="bar-min"></span></div>
+        <button class="stop hidden" id="btn-finish">■ Stop &amp; save answer</button>
+        <div class="row">
+          <button class="secondary hidden" id="btn-repeat">Repeat question</button>
+          <button class="hidden" id="btn-retry">Try uploading again</button>
+        </div>
+        <div class="hint" id="hint"></div>
+      </div>
     </div>
     <div class="error" id="interview-error"></div>
   </div>
@@ -482,14 +494,14 @@ function record(q) {
     // Stop & save is available at any time. Two taps are needed, because there are no redos.
     const btn = $('btn-finish');
     let confirmTimer = null;
-    btn.textContent = 'Stop & save answer';
+    btn.textContent = '■ Stop & save answer';
     btn.disabled = false;
     btn.classList.remove('hidden');
     btn.onclick = () => {
       if (rec.state !== 'recording') return;
       if (!confirmTimer) {
         btn.textContent = 'Tap again to confirm (no redos)';
-        confirmTimer = setTimeout(() => { confirmTimer = null; btn.textContent = 'Stop & save answer'; }, 4000);
+        confirmTimer = setTimeout(() => { confirmTimer = null; btn.textContent = '■ Stop & save answer'; }, 4000);
         return;
       }
       clearTimeout(confirmTimer);
