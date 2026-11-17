@@ -80,7 +80,8 @@
     <p>This is a recorded video interview. Our AI interviewer will greet you and ask a few questions out loud, one at a time. After each question you'll have a few seconds to think, then your answer is recorded on video.</p>
     <p><strong>Please read before you start:</strong></p>
     <ul class="rules">
-      <li><strong>Each question has its own time requirement.</strong> The minimum and maximum time are shown on screen for every question, and you can't finish an answer before the minimum time.</li>
+      <li><strong>Each question has its own time requirement.</strong> The suggested minimum and the maximum time are shown on screen for every question.</li>
+      <li><strong>You can stop and save your answer at any time</strong> by clicking "Stop &amp; save answer". If you don't, recording stops automatically when the time limit is reached.</li>
       <li><strong>There are no do-overs.</strong> Once you answer a question, your recording is final.</li>
       <li><strong>When time is up, the interview moves on.</strong> Recording stops automatically and the next question begins.</li>
       <li>The whole interview takes about 15–20 minutes. Find a quiet, well-lit place, keep your face in view of the camera, and use headphones if you can.</li>
@@ -137,7 +138,7 @@
     <div class="hint" id="hint"></div>
     <div class="row">
       <button class="secondary hidden" id="btn-repeat">Repeat question</button>
-      <button class="hidden" id="btn-finish" disabled>Finish answer</button>
+      <button class="hidden" id="btn-finish">Stop &amp; save answer</button>
       <button class="hidden" id="btn-retry">Try uploading again</button>
     </div>
     <div class="error" id="interview-error"></div>
@@ -287,7 +288,8 @@ $('btn-begin').onclick = async () => {
       'a timer is shown on screen, and the recording stops automatically when time is up. ' +
       'Second, there are no redos. Once you answer a question, your recording is final and cannot be recorded again. ' +
       'After I read each question, you will have ' + settings.prepSeconds + ' seconds to think. ' +
-      'When you hear the beep, start speaking. I will stay quiet while you answer. Let us begin.'
+      'When you hear the beep, start speaking. When you are done, click Stop and save answer, or the recording will stop on its own when time is up. ' +
+      'I will stay quiet while you answer. Let us begin.'
     );
 
     for (let i = 0; i < questions.length; i++) await runQuestion(i);
@@ -417,7 +419,7 @@ async function runQuestion(i) {
 
   setStatus('Interviewer is speaking…');
   let timeNote = ' You have up to ' + spokenTime(q.max) + ' to answer';
-  timeNote += q.min >= 60 ? ', and please speak for at least ' + spokenTime(q.min) + '.' : '. A short answer is fine for this one.';
+  timeNote += q.min >= 60 ? ', and we suggest speaking for at least ' + spokenTime(q.min) + '.' : '. A short answer is fine for this one.';
   await speak(lead + ' ' + q.text + timeNote,
               (settings.showText ? lead : lead + ' (listen to the question)') + timeNote);
 
@@ -477,10 +479,25 @@ function record(q) {
     };
 
     setStatus('Recording your answer', true);
-    $('btn-finish').classList.remove('hidden');
-    $('btn-finish').disabled = true;
-    $('btn-finish').onclick = () => { if (rec.state === 'recording') rec.stop(); };
-    setHint('Speak for at least ' + fmt(MIN) + '. Recording stops automatically at ' + fmt(MAX) + '.');
+    // Stop & save is available at any time. Two taps are needed, because there are no redos.
+    const btn = $('btn-finish');
+    let confirmTimer = null;
+    btn.textContent = 'Stop & save answer';
+    btn.disabled = false;
+    btn.classList.remove('hidden');
+    btn.onclick = () => {
+      if (rec.state !== 'recording') return;
+      if (!confirmTimer) {
+        btn.textContent = 'Tap again to confirm (no redos)';
+        confirmTimer = setTimeout(() => { confirmTimer = null; btn.textContent = 'Stop & save answer'; }, 4000);
+        return;
+      }
+      clearTimeout(confirmTimer);
+      btn.disabled = true;
+      btn.textContent = 'Saving…';
+      rec.stop();
+    };
+    setHint('Suggested: at least ' + fmt(MIN) + '. Recording stops automatically at ' + fmt(MAX) + '. Click "Stop & save answer" when you are done.');
 
     rec.start(1000);
     $('rec-badge').classList.remove('hidden');
@@ -495,12 +512,9 @@ function record(q) {
       $('timer').textContent = fmt(el);
       $('bar-fill').style.width = Math.min(100, el / MAX * 100) + '%';
 
-      if (el >= MIN) {
-        $('btn-finish').disabled = false;
-        if (!warned && !warned60) {
-          if (quietFor >= QUIET_HINT_AFTER) setHint('If you\'re finished, click "Finish answer".');
-          else setHint('You can finish now, or keep going until ' + fmt(MAX) + '.');
-        }
+      if (!warned && !warned60) {
+        if (quietFor >= QUIET_HINT_AFTER) setHint('If you\'re finished, click "Stop & save answer". Your answer is final once saved.');
+        else if (el >= MIN) setHint('You can stop and save now, or keep going until ' + fmt(MAX) + '.');
       }
 
       // 1-minute warning for long answers
