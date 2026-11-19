@@ -90,7 +90,7 @@
     <ul class="rules">
       <li><strong>Each question has its own time requirement.</strong> The suggested minimum and the maximum time are shown on screen for every question.</li>
       <li><strong>You can stop and save your answer at any time</strong> by clicking "Stop &amp; save answer". If you don't, recording stops automatically when the time limit is reached.</li>
-      <li><strong>There are no do-overs.</strong> Once you answer a question, your recording is final.</li>
+      <li><strong>There are no do-overs.</strong> Once you answer a question, your recording is final. You can only take this interview once.</li>
       <li><strong>When time is up, the interview moves on.</strong> Recording stops automatically and the next question begins.</li>
       <li>The whole interview takes about 15–20 minutes. Find a quiet, well-lit place, keep your face in view of the camera, and use headphones if you can.</li>
     </ul>
@@ -99,7 +99,7 @@
     <input type="text" id="name" autocomplete="name">
     <label for="email">Email</label>
     <input type="email" id="email" autocomplete="email">
-    <label for="phone">Mobile number (optional)</label>
+    <label for="phone">Mobile number</label>
     <input type="tel" id="phone" autocomplete="tel">
 
     <label class="consent">
@@ -171,6 +171,9 @@ const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwD92wCQsGFQlXyRa67u
 const INTERVIEWER_NAME = 'Kloe';                     // the name shown on screen
 const SPOKEN_NAME = 'Chloe';                         // how the name is pronounced out loud
 const COMPANY_NAME = '';                             // e.g. 'Roam Adventure Co.' (leave '' to skip)
+// Natural voice: upload recorded clips named voice-intro.mp3, voice-q1.mp3 ... (see voice-script.txt).
+// Any clip that isn't uploaded falls back to the browser's built-in voice.
+const USE_RECORDED_VOICE = true;
 // =========================================================
 
 // Things the interviewer says. Edit or add lines freely; one is picked at random each time.
@@ -178,9 +181,7 @@ const LINES = {
   thanks: [
     'Thank you.',
     'Thanks for sharing that.',
-    'Got it, thank you.',
-    'Thank you, that is helpful.',
-    'Okay, thank you for that answer.'
+    'Got it, thank you. That is helpful.'
   ],
   next: [
     'Here is the next question.',
@@ -234,12 +235,25 @@ $('btn-start').onclick = async () => {
   if (!applicant.name || !/^\S+@\S+\.\S+$/.test(applicant.email)) {
     $('welcome-error').textContent = 'Please enter your full name and a valid email.'; return;
   }
+  if (applicant.phone.replace(/\D/g, '').length < 10) {
+    $('welcome-error').textContent = 'Please enter a valid mobile number.'; return;
+  }
   if (!$('consent').checked) {
     $('welcome-error').textContent = 'Please tick the consent box to continue.'; return;
   }
   if (!navigator.mediaDevices || !window.MediaRecorder) {
     $('welcome-error').textContent = 'Your browser can\'t record audio. Please use a recent Chrome, Edge, Firefox or Safari.'; return;
   }
+  // each applicant can only take the interview once
+  $('btn-start').disabled = true;
+  try {
+    await api({ action: 'check', email: applicant.email, phone: applicant.phone });
+  } catch (e) {
+    $('welcome-error').textContent = e.message;
+    $('btn-start').disabled = false;
+    return;
+  }
+  $('btn-start').disabled = false;
   try {
     stream = await navigator.mediaDevices.getUserMedia({
       audio: { echoCancellation: true, noiseSuppression: true },
@@ -280,6 +294,7 @@ function startMeter() {
 
 // ---------- step 2: the interview ----------
 $('btn-begin').onclick = async () => {
+  unlockPlayer();   // lets recorded clips play on phones
   $('mic-error').textContent = '';
   $('btn-begin').disabled = true;
   $('btn-begin').textContent = 'Preparing your questions…';
@@ -301,7 +316,8 @@ $('btn-begin').onclick = async () => {
       'Second, there are no redos. Once you answer a question, your recording is final and cannot be recorded again. ' +
       'After I read each question, you will have ' + settings.prepSeconds + ' seconds to think. ' +
       'When you hear the beep, start speaking. When you are done, click Stop and save answer, or the recording will stop on its own when time is up. ' +
-      'I will stay quiet while you answer. Let us begin.'
+      'I will stay quiet while you answer. Let us begin.',
+      undefined, 'intro'
     );
 
     for (let i = 0; i < questions.length; i++) await runQuestion(i);
@@ -309,7 +325,7 @@ $('btn-begin').onclick = async () => {
     setStatus('Interviewer is speaking…');
     await api({ action: 'finish', sessionId }).catch(() => {});
     await speak('Thank you, ' + first + '. That is the end of the interview, and all your answers have been saved. ' +
-                'The hiring team will review them and get back to you. Have a great day!');
+                'The hiring team will review them and get back to you. Have a great day!', undefined, 'goodbye');
     inInterview = false;
     stream.getTracks().forEach(t => t.stop());
     show('screen-done');
@@ -336,16 +352,72 @@ function pickVoice() {
   const en = speechSynthesis.getVoices().filter(v => /^en/i.test(v.lang));
   const female = en.filter(v => FEMALE_VOICE.test(v.name) && !MALE_VOICE.test(v.name));
   const notMale = en.filter(v => !MALE_VOICE.test(v.name));
-  const best = list => list.find(v => /Natural|Online|Google/i.test(v.name)) || list[0];
+  // most natural first: Edge "Natural" voices, then online/Google voices, then Apple's better voices
+  const best = list => list.find(v => /Natural/i.test(v.name)) || list.find(v => /Online/i.test(v.name)) ||
+                       list.find(v => /Google/i.test(v.name)) || list.find(v => /Samantha|Ava|Allison|Susan/i.test(v.name)) || list[0];
   voice = best(female) || best(notMale) || en[0] || null;
 }
 if ('speechSynthesis' in window) { pickVoice(); speechSynthesis.onvoiceschanged = pickVoice; }
 
-// says the text out loud, shows it as a caption, and animates the avatar
-function speak(text, caption) {
+// ---------- recorded voice clips ----------
+const player = new Audio();
+player.preload = 'auto';
+const missingClips = new Set();
+
+function unlockPlayer() {
+  // phones only allow audio after a tap, so play a tiny silent sound during the tap
+  const sr = 8000, n = 400, b = new ArrayBuffer(44 + n * 2), v = new DataView(b);
+  const w = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  w(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); w(8, 'WAVE'); w(12, 'fmt ');
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, sr, true); v.setUint32(28, sr * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+  w(36, 'data'); v.setUint32(40, n * 2, true);
+  player.src = URL.createObjectURL(new Blob([b], { type: 'audio/wav' }));
+  player.play().catch(() => {});
+}
+
+// plays voice-<name>.mp3 (or .m4a / .wav). Resolves true if it played, false if not available.
+function playClip(name) {
+  if (!USE_RECORDED_VOICE || !name || missingClips.has(name)) return Promise.resolve(false);
+  const files = ['mp3', 'm4a', 'wav'].map(ext => 'voice-' + name + '.' + ext);
+  return new Promise(resolve => {
+    let idx = 0, settled = false;
+    const end = ok => {
+      if (settled) return;
+      settled = true;
+      player.onended = player.onerror = null;
+      if (!ok) missingClips.add(name);
+      resolve(ok);
+    };
+    const tryNext = () => {
+      if (idx >= files.length) return end(false);
+      player.onerror = tryNext;
+      player.onended = () => end(true);
+      player.src = files[idx++];
+      player.play().catch(err => { if (err && err.name === 'NotAllowedError') end(false); });
+    };
+    tryNext();
+  });
+}
+
+// says the text out loud, shows it as a caption, and animates the avatar.
+// If a recorded clip is given and uploaded, it plays that instead of the browser voice.
+async function speak(text, caption, clip) {
   // on screen, always show the written name (Kloe), even though the voice says it as "Chloe"
   if (caption === undefined) caption = text;
   caption = String(caption).split(SPOKEN_NAME).join(INTERVIEWER_NAME);
+  if (clip && USE_RECORDED_VOICE && !missingClips.has(clip)) {
+    $('iv-say').textContent = caption || '';
+    $('avatar').classList.add('talking');
+    const played = await playClip(clip);
+    $('avatar').classList.remove('talking');
+    if (played) return;
+  }
+  return speakTTS(text, caption);
+}
+
+// the browser's built-in voice (used when no recorded clip is available)
+function speakTTS(text, caption) {
   return new Promise(resolve => {
     $('iv-say').textContent = caption || '';
     $('avatar').classList.add('talking');
@@ -367,7 +439,7 @@ function speak(text, caption) {
       if (!part) return next();
       const u = new SpeechSynthesisUtterance(part);
       if (voice) u.voice = voice;
-      u.rate = 0.95;
+      u.rate = 1;
       let partDone = false;
       const go = () => { if (!partDone) { partDone = true; next(); } };
       u.onend = go; u.onerror = go;
@@ -433,7 +505,7 @@ async function runQuestion(i) {
   let timeNote = ' You have up to ' + spokenTime(q.max) + ' to answer';
   timeNote += q.min >= 60 ? ', and we suggest speaking for at least ' + spokenTime(q.min) + '.' : '. A short answer is fine for this one.';
   await speak(lead + ' ' + q.text + timeNote,
-              (settings.showText ? lead : lead + ' (listen to the question)') + timeNote);
+              (settings.showText ? lead : lead + ' (listen to the question)') + timeNote, 'q' + (i + 1));
 
   // thinking time, with the option to repeat the question
   let repeatRequested = false;
@@ -444,7 +516,7 @@ async function runQuestion(i) {
     if (repeatRequested) {
       repeatRequested = false;
       setStatus('Interviewer is speaking…');
-      await speak('Sure. ' + q.text, settings.showText ? 'Sure, here it is again.' : 'Sure, here it is again (listen).');
+      await speak('Sure. ' + q.text, settings.showText ? 'Sure, here it is again.' : 'Sure, here it is again (listen).', 'q' + (i + 1));
       s = settings.prepSeconds + 1; continue;
     }
     setStatus('Take a moment to think. Recording starts in ' + s + '…');
@@ -461,7 +533,10 @@ async function runQuestion(i) {
   setStatus('Saving your answer…');
   $('iv-say').textContent = '';
   await upload(i, q, result);
-  if (i < questions.length - 1) await speak(pick(LINES.thanks));
+  if (i < questions.length - 1) {
+    const t = Math.floor(Math.random() * LINES.thanks.length);
+    await speak(LINES.thanks[t], undefined, 'thanks' + (t + 1));
+  }
 }
 
 function record(q) {
